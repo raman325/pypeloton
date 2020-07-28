@@ -1,0 +1,17 @@
+language: python
+python:
+- 3.8
+- 3.7
+- 3.6
+install: pip install -U tox-travis
+script: tox
+deploy:
+  provider: pypi
+  distributions: sdist bdist_wheel
+  user: __token__
+  password:
+    secure: CD8QoFJPjnOIFzpLBR9k0IbD6jgQ5N6QUzyfk98rjv9XxW4xjxG6WLFpy3QdjY0D58EnQi+EGyNOdbzUN9Fr/E8Q1Bxt9PPqiMZv+LLLroNrq5Y+Rr4/ij8Pf/U1sMKCZbRYpxszA8lFe537gluMHsOPEFe2c63g+2cjVfWxplocQpa/w92asTyBAvQgL5Ta7SDwpdtnwgwRZBKAuhE0CaoCTK3KIfIkyyMZAMrclLUXQAew4nugKZZyjBZN+9LjYRfqZzjAwnjcJs4xlh94yUzh7ieay4hgb14hNP1Z2FCzrLvTpDB29qb20zrpDEniI153v34NWgpQvxFmt1ZgHPAgpl+GcI7u/gFnaGYAwW/v6mZB3WIM8zkUlazuydfgiXmIknvt2R/ZmR/volm4QWYewp8Fpj/kA3fEWJfHDTaGao4zyEixGSWvIm7VFbmjB0ZhU5AKpZgwsy9BppMoHENGgi2tZdDLiSAatVOT84V5NxMuWdNzK/mWkFXQ8IUs3u6nHac4tojAxwot9kRtxM6K6zeFUOY+mbOmKW1DcJ9fLxRWum65oepllKoSRX+fHJhK6Pn/hUpw5lS65RfWlHOz+Eu1VReGyqXEEWPav/Eq+Nn5kBCDSGR9wPr2XMBUyf974nQW/TeX8P4TueR/RrwfCKQJApVgefZbCNMya1s=
+  on:
+    tags: true
+    repo: raman325/pypeloton
+    python: 3.6
