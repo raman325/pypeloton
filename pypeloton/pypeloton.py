@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 import logging
 from typing import Any, Dict, List, Union
 
-from aiohttp import ClientSession
+from aiohttp import ClientResponseError, ClientSession
 
 from .const import ENDPOINTS, HEADERS
 from .helpers import get_workout_params
@@ -20,6 +20,7 @@ class PelotonResponseException(Exception):
 
 
 class PelotonAsync:
+    """Async Peloton client."""
     def __init__(
         self,
         username_or_email: str,
@@ -70,39 +71,44 @@ class PelotonAsync:
     async def _call_api(
         self, url: str, params: Dict[str, Any] = None, data: Any = None
     ):
+        """Call unpaginated peloton API."""
         if not params:
             params = {}
         params.update({"limit": self._page_limit})
-        if self._session:
-            # Only login again if a valid session exists
-            if (
-                not self._session_expiration
-                or self._session_expiration > datetime.now()
-            ):
-                await self._login(self._session)
-            resp = await self._session.get(
-                url, params=params, json=data, headers=HEADERS, raise_for_status=True
-            )
-            return await resp.json()
 
-        else:
-            async with ClientSession() as session:
+        try:
+            if self._session:
                 # Only login again if a valid session exists
                 if (
                     not self._session_expiration
                     or self._session_expiration > datetime.now()
                 ):
-                    await self._login(session)
-                # Restore saved cookies to session since we are creating a new session each time
-                session.cookie_jar.update_cookies(self._cookies)
-                resp = await session.get(
-                    url,
-                    params=params,
-                    json=data,
-                    headers=HEADERS,
-                    raise_for_status=True,
+                    await self._login(self._session)
+                resp = await self._session.get(
+                    url, params=params, json=data, headers=HEADERS, raise_for_status=True
                 )
                 return await resp.json()
+
+            else:
+                async with ClientSession() as session:
+                    # Only login again if a valid session exists
+                    if (
+                        not self._session_expiration
+                        or self._session_expiration > datetime.now()
+                    ):
+                        await self._login(session)
+                    # Restore saved cookies to session since we are creating a new session each time
+                    session.cookie_jar.update_cookies(self._cookies)
+                    resp = await session.get(
+                        url,
+                        params=params,
+                        json=data,
+                        headers=HEADERS,
+                        raise_for_status=True,
+                    )
+                    return await resp.json()
+        except ClientResponseError as e:
+            raise PelotonResponseException(f"{e.status}: {e.message}")
 
     async def _get_paginated_results(
         self,
@@ -112,6 +118,7 @@ class PelotonAsync:
         params: Dict[str, Any] = None,
         data: Any = None,
     ):
+        """Call paginated peloton API, combining results into a single payload."""
         if not params:
             params = {}
         curr_page = 0
@@ -136,21 +143,26 @@ class PelotonAsync:
         return all_results
 
     async def get_instructors(self) -> List[Dict[str, Any]]:
+        """Get a list of all instructors."""
         return await self._get_paginated_results(ENDPOINTS["INSTRUCTOR"], "data")
 
     async def get_user_id(self, username: str) -> Dict[str, Any]:
+        """Get a given user's user ID. Useful for other functions."""
         resp = await self._call_api(f"{ENDPOINTS['USER']}/{username}")
         return resp["id"]
 
     async def get_my_profile(self) -> Dict[str, Any]:
+        """Get the profile of the logged in user."""
         return await self._call_api(ENDPOINTS["PROFILE"])
 
     async def get_user_detail(self, user_id: str = None) -> Dict[str, Any]:
+        """Get the profile of a user."""
         if not user_id:
             user_id = self.user_id
         return await self._call_api(f"{ENDPOINTS['USER']}/{user_id}")
 
     async def get_user_followers(self, user_id: str = None) -> Dict[str, Any]:
+        """Get the list of followers of a user."""
         if not user_id:
             user_id = self.user_id
         return await self._call_api(
@@ -158,6 +170,7 @@ class PelotonAsync:
         )
 
     async def get_user_following(self, user_id: str = None) -> Dict[str, Any]:
+        """Get the list of users that a user is following."""
         if not user_id:
             user_id = self.user_id
         return await self._call_api(
@@ -165,6 +178,7 @@ class PelotonAsync:
         )
 
     async def get_user_achievements(self, user_id: str = None) -> Dict[str, Any]:
+        """Get the list of achievements for a user."""
         if not user_id:
             user_id = self.user_id
         return await self._call_api(
@@ -174,15 +188,18 @@ class PelotonAsync:
     async def get_user_workouts(
         self,
         user_id: str = None,
+        num_latest_workouts: int = 0,
         include_ride_details: bool = False,
         include_instructor_details: bool = False,
     ) -> List[Dict[str, Any]]:
+        """Get list of worksouts for a given user."""
         params = get_workout_params(include_ride_details, include_instructor_details)
         if not user_id:
             user_id = self.user_id
         return await self._get_paginated_results(
             f"{ENDPOINTS['USER']}/{user_id}/{ENDPOINTS['USER_RELATIVE']['WORKOUTS']}",
             "data",
+            num_results=num_latest_workouts,
             params=params,
         )
 
@@ -192,31 +209,37 @@ class PelotonAsync:
         include_ride_details: bool = False,
         include_instructor_details: bool = False,
     ) -> Dict[str, Any]:
+        """Get metadata for a given workout."""
         params = get_workout_params(include_ride_details, include_instructor_details)
         return await self._call_api(
             f"{ENDPOINTS['WORKOUT_DETAIL']}/{workout_id}", params=params
         )
 
     async def get_workout_metrics(self, workout_id: str, frequency_sec: int = 10):
+        """Get metrics for a given workout."""
         return await self._call_api(
             f"{ENDPOINTS['WORKOUT_DETAIL']}/{workout_id}/{ENDPOINTS['WORKOUT_RELATIVE']['METRICS']}",
             params={"every_n": frequency_sec},
         )
 
     async def get_workout_achievements(self, workout_id: str):
+        """Get achievements for a given workout."""
         return await self._call_api(
             f"{ENDPOINTS['WORKOUT_DETAIL']}/{workout_id}/{ENDPOINTS['WORKOUT_RELATIVE']['ACHIEVEMENTS']}"
         )
 
     async def get_workout_summary(self, workout_id: str):
+        """Get summary of a given workout."""
         return await self._call_api(
             f"{ENDPOINTS['WORKOUT_DETAIL']}/{workout_id}/{ENDPOINTS['WORKOUT_RELATIVE']['SUMMARY']}"
         )
 
     async def get_ride_metadata(self, ride_id: str) -> Dict[str, Any]:
+        """Get metadata for a given ride."""
         return await self._call_api(f"{ENDPOINTS['RIDE_DETAIL']}/{ride_id}")
 
     async def get_schema(self) -> Dict[str, Any]:
+        """Get API schema."""
         return await self._call_api(f"{ENDPOINTS['SCHEMA']}")
 
 
@@ -264,11 +287,12 @@ class Peloton(PelotonAsync):
     async def get_user_workouts(
         self,
         user_id: str = None,
+        num_latest_workouts: int = 0,
         include_ride_details: bool = False,
         include_instructor_details: bool = False,
     ) -> List[Dict[str, Any]]:
         return await super(Peloton, self).get_user_workouts(
-            user_id, include_ride_details, include_instructor_details
+            user_id, num_latest_workouts, include_ride_details, include_instructor_details
         )
 
     @async_to_sync
