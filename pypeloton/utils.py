@@ -3,7 +3,7 @@ from functools import wraps
 from typing import Callable
 
 
-def async_to_sync(f: Callable) -> None:
+def async_to_sync(f: Callable) -> Callable:
     """Decorator to run async function as sync."""
 
     @wraps(f)

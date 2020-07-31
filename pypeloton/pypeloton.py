@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta
+from http.cookies import SimpleCookie
 import logging
 from typing import Any, Dict, List, Union
 
-from aiohttp import ClientResponseError, ClientSession
+from aiohttp import ClientConnectionError, ClientResponseError, ClientSession
 
 from .const import ENDPOINTS, HEADERS
 from .helpers import get_workout_params
@@ -11,16 +12,31 @@ from .utils import async_to_sync
 _LOGGER = logging.getLogger(__name__)
 
 
-class PelotonResponseException(Exception):
-    def __init__(self, response):
-        super(PelotonResponseException, self).__init__(
-            self, "Unable to handle response"
-        )
-        self.response = response
+class PelotonException(Exception):
+    """Base Peloton exception."""
+
+
+class PelotonConnectionError(PelotonException):
+    """Exception that is raised when there is a connection error."""
+
+
+class PelotonResponseError(PelotonException):
+    """Exception that is raised when there is a response error."""
+
+
+class PelotonProcessingError(PelotonException):
+    """Exception that is raised when API Response can't be processed."""
+
+    def __init__(self, reason: str, url: str, params: Dict[str, Any], data: Any):
+        self.reason = reason
+        self.url = url
+        self.params = params
+        self.data = data
 
 
 class PelotonAsync:
-    """Async Peloton client."""
+    """Async Peloton API client."""
+
     def __init__(
         self,
         username_or_email: str,
@@ -31,17 +47,16 @@ class PelotonAsync:
     ) -> None:
         """Initialize Peloton API Client instance."""
         self.username_or_email = username_or_email
-        self.user_id = None
-        self.username = None
-        self.email = None
-        self.name = None
+        self.user_id: str
+        self.username: str
+        self.email: str
+        self.name: str
         self._password = password
-        self._session_expiration = None
+        self._session_expiration: datetime
         self._session = session
-        self._cookies = None
-
-        _LOGGER.setLevel(log_level)
+        self._cookies: SimpleCookie
         self._page_limit = page_limit
+        _LOGGER.setLevel(log_level)
 
     async def _login(self, session: ClientSession) -> None:
         """Log in to Peloton API to get proper cookies."""
@@ -85,7 +100,11 @@ class PelotonAsync:
                 ):
                     await self._login(self._session)
                 resp = await self._session.get(
-                    url, params=params, json=data, headers=HEADERS, raise_for_status=True
+                    url,
+                    params=params,
+                    json=data,
+                    headers=HEADERS,
+                    raise_for_status=True,
                 )
                 return await resp.json()
 
@@ -107,8 +126,10 @@ class PelotonAsync:
                         raise_for_status=True,
                     )
                     return await resp.json()
-        except ClientResponseError as e:
-            raise PelotonResponseException(f"{e.status}: {e.message}")
+        except ClientConnectionError:
+            raise PelotonConnectionError
+        except ClientResponseError:
+            raise PelotonResponseError
 
     async def _get_paginated_results(
         self,
@@ -134,7 +155,11 @@ class PelotonAsync:
                 num_pages = results["page_count"]
                 all_results += results[key]
             else:
-                raise PelotonResponseException(results)
+                if "page_count" not in results:
+                    error = "Expected but did not receive paginated data"
+                else:
+                    error = f"`{key}` not found in results from query"
+                raise PelotonProcessingError(error, url, params, data)
             curr_page += 1
 
         if num_results:
@@ -244,6 +269,8 @@ class PelotonAsync:
 
 
 class Peloton(PelotonAsync):
+    """Synchronous Peloton API Client."""
+
     def __init__(
         self,
         username_or_email: str,
@@ -292,7 +319,10 @@ class Peloton(PelotonAsync):
         include_instructor_details: bool = False,
     ) -> List[Dict[str, Any]]:
         return await super(Peloton, self).get_user_workouts(
-            user_id, num_latest_workouts, include_ride_details, include_instructor_details
+            user_id,
+            num_latest_workouts,
+            include_ride_details,
+            include_instructor_details,
         )
 
     @async_to_sync
